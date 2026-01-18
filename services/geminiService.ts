@@ -2,21 +2,40 @@
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { NewsCategory, NewsItem, VoiceName, VoiceMap, NewsNetwork } from "../types.ts";
 
-// 检查 API KEY 是否已在构建时注入
+// 检查 API KEY
 const API_KEY = process.env.API_KEY;
 
-if (!API_KEY || API_KEY === "undefined") {
-  console.error("API_KEY is missing! Please set it in Cloudflare Pages Environment Variables.");
+export const getApiKeyStatus = () => {
+  if (!API_KEY || API_KEY === "undefined" || API_KEY === "MISSING_KEY") return "missing";
+  if (API_KEY.length < 10) return "invalid";
+  return "present";
+};
+
+const ai = new GoogleGenAI({ apiKey: API_KEY || '' });
+
+/**
+ * 诊断测试：尝试发起一个极简单的内容生成请求
+ */
+export async function testConnection(): Promise<{success: boolean, message: string}> {
+  if (getApiKeyStatus() !== "present") {
+    return { success: false, message: "API Key 未在 Cloudflare 后台正确配置" };
+  }
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-lite-latest",
+      contents: "hi",
+    });
+    if (response.text) return { success: true, message: "连接成功" };
+    return { success: false, message: "响应异常" };
+  } catch (e: any) {
+    console.error("Diagnostic failed:", e);
+    return { success: false, message: e.message || "网络请求被拦截" };
+  }
 }
 
-const ai = new GoogleGenAI({ apiKey: API_KEY || 'MISSING_KEY' });
-
 export async function fetchLatestNews(category: NewsCategory): Promise<NewsItem[]> {
-  if (!API_KEY) throw new Error("API Key 未配置，请在 Cloudflare 后台设置环境变量 API_KEY");
-
   const prompt = `Provide 3 short, high-impact news stories in English for: ${category}. 
-    Each story must have a title and a 3-sentence summary in clear, professional English.
-    Ensure all information is from the last 24 hours.`;
+    Each story must have a title and a 3-sentence summary in clear, professional English.`;
 
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
@@ -52,7 +71,7 @@ export async function generateSpeech(text: string, voiceDisplay: VoiceName): Pro
   const actualVoice = VoiceMap[voiceDisplay] || 'Zephyr';
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash-preview-tts",
-    contents: [{ parts: [{ text: `Broadcast clearly: ${text}` }] }],
+    contents: [{ parts: [{ text: text }] }],
     config: {
       responseModalities: [Modality.AUDIO],
       speechConfig: {
@@ -77,16 +96,7 @@ export const connectLiveNews = (callbacks: any, network: NewsNetwork = NewsNetwo
       speechConfig: {
         voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } },
       },
-      thinkingConfig: { thinkingBudget: 12000 },
-      systemInstruction: `SYSTEM: You are the lead anchor for Global Echo AI Radio (Channel: ${network}).
-      
-      MANDATE:
-      1. REAL-TIME: Search Google for the top 3 headlines right now.
-      2. CLARITY: Speak clearly for advanced English learners. Maintain a professional BBC/NPR style.
-      3. FLOW: Keep the broadcast to 2 minutes. Summarize each news story concisely.
-      4. ENDING: Always end your broadcast with exactly: "That concludes our bulletin for ${network}. Station switch in 5 seconds." and then STOP speaking.
-      
-      Begin the broadcast now with a global impact headline.`,
+      systemInstruction: `SYSTEM: Lead anchor for ${network}. Speak clear English for learners.`,
       tools: [{ googleSearch: {} }]
     },
   });
