@@ -4,7 +4,7 @@ import Header from './components/Header.tsx';
 import CategoryFilter from './components/CategoryFilter.tsx';
 import NewsCard from './components/NewsCard.tsx';
 import AudioVisualizer from './components/AudioVisualizer.tsx';
-import { NewsCategory, NewsItem, VoiceName, NewsNetwork, NetworkStreamMap } from './types.ts';
+import { NewsCategory, NewsItem, VoiceName, NewsNetwork, NetworkStreamMap, NetworkAudioMap } from './types.ts';
 import { fetchLatestNews, generateSpeech, connectLiveNews } from './services/geminiService.ts';
 import { decode, decodeAudioData } from './utils/audio.ts';
 
@@ -28,6 +28,7 @@ const App: React.FC = () => {
   const nextStartTimeRef = useRef<number>(0);
   const activeSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const silentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const streamAudioRef = useRef<HTMLAudioElement | null>(null);
   const autoSwitchTimeoutRef = useRef<number | null>(null);
 
   const initAudio = async () => {
@@ -37,6 +38,7 @@ const App: React.FC = () => {
     if (audioContextRef.current.state === 'suspended') {
       await audioContextRef.current.resume();
     }
+    // 激活静音底噪，防止 iOS 熄屏切断音频
     if (silentAudioRef.current) {
       try { await silentAudioRef.current.play(); } catch(e) {}
     }
@@ -49,17 +51,19 @@ const App: React.FC = () => {
       autoSwitchTimeoutRef.current = null;
     }
     
+    // 停止 AI 播报
     activeSourcesRef.current.forEach(source => { try { source.stop(); } catch(e) {} });
     activeSourcesRef.current.clear();
+    
+    // 停止直连音频流
+    if (streamAudioRef.current) {
+      streamAudioRef.current.pause();
+      streamAudioRef.current.src = '';
+    }
     
     if (liveSessionRef.current) {
       liveSessionRef.current.close();
       liveSessionRef.current = null;
-    }
-    
-    if (silentAudioRef.current) {
-      silentAudioRef.current.pause();
-      silentAudioRef.current.currentTime = 0;
     }
     
     setIsSpeaking(false);
@@ -77,31 +81,44 @@ const App: React.FC = () => {
 
   const handleNextNetwork = useCallback(() => {
     if (!isAutoSwitch) return;
-
-    const networks = Object.values(NewsNetwork);
+    const networks = Object.values(NewsNetwork).filter(n => n !== NewsNetwork.GLOBAL_AI);
     const currentIndex = activeNetwork ? networks.indexOf(activeNetwork) : -1;
     const nextIndex = (currentIndex + 1) % networks.length;
     const nextNet = networks[nextIndex];
     
-    setStatusMessage(`即将自动切换至: ${nextNet}`);
-    
     stopAllAudio(false);
-    setActiveNetwork(nextNet);
-    setIsLiveMode(true);
-    setIsTuning(true);
-    
-    setTimeout(() => {
-      setIsTuning(false);
-      startAILive(nextNet);
-    }, 2000);
+    selectNetwork(nextNet);
   }, [activeNetwork, isAutoSwitch, stopAllAudio]);
 
   const handleSyncAudio = async () => {
-    setStatusMessage('正在初始化音频引擎...');
+    setStatusMessage('正在握手音频协议...');
     await initAudio();
     setNeedsInteraction(false);
-    if (!isOfficialStream && activeNetwork) {
-        startAILive(activeNetwork);
+    if (activeNetwork) {
+        if (isOfficialStream) {
+            playOfficialStream(activeNetwork);
+        } else {
+            startAILive(activeNetwork);
+        }
+    }
+  };
+
+  const playOfficialStream = async (network: NewsNetwork) => {
+    const audioUrl = NetworkAudioMap[network];
+    if (audioUrl && streamAudioRef.current) {
+      setStatusMessage(`正在建立音频链路: ${network}`);
+      setIsSpeaking(true);
+      streamAudioRef.current.src = audioUrl;
+      try {
+        await streamAudioRef.current.play();
+        setStatusMessage(`${network} 直播中 (官方源)`);
+      } catch (e) {
+        setStatusMessage('播放失败，可能需要代理');
+        setNeedsInteraction(true);
+      }
+    } else if (NetworkStreamMap[network]) {
+      setStatusMessage(`${network} 视频流已载入`);
+      setIsSpeaking(true);
     }
   };
 
@@ -111,7 +128,7 @@ const App: React.FC = () => {
     setIsLiveMode(true);
     setNeedsInteraction(true); 
     setIsTuning(true);
-    setStatusMessage(`正在调谐至 ${network}...`);
+    setStatusMessage(`调谐频率: ${network}...`);
     
     setTimeout(() => {
       setIsTuning(false);
@@ -121,18 +138,16 @@ const App: React.FC = () => {
   const startAILive = useCallback(async (network: NewsNetwork) => {
     const ctx = await initAudio();
     setIsSpeaking(true);
-    setStatusMessage(`正在连接 ${network} 神经链路...`);
+    setStatusMessage(`正在连接 ${network} AI 增强频道...`);
     nextStartTimeRef.current = ctx.currentTime + 0.3;
 
     try {
       const callbacks = {
         onopen: () => {
-          setStatusMessage(`${network} 播报中...`);
-          if (sessionPromise) {
-            sessionPromise.then(session => {
-              session.sendRealtimeInput({
-                text: `SYSTEM: 开始英语播报频道：${network}。请总结并播报最新的3条重要英语新闻。完成后请说 "Station switch in 5 seconds." 并停止说话。`
-              });
+          setStatusMessage(`${network} AI 实时播报中...`);
+          if (liveSessionRef.current) {
+            liveSessionRef.current.sendRealtimeInput({
+              text: `SYSTEM: Start broadcasting for ${network} channel in English. Summarize top 3 news. End with "Station switch in 5 seconds."`
             });
           }
         },
@@ -153,14 +168,14 @@ const App: React.FC = () => {
           }
           
           if (message.serverContent?.turnComplete && isAutoSwitch) {
-            setStatusMessage('本轮播报结束，准备切换频道...');
+            setStatusMessage('准备切换频道...');
             autoSwitchTimeoutRef.current = window.setTimeout(() => {
                 handleNextNetwork();
             }, 6000);
           }
         },
         onerror: () => {
-          setStatusMessage('信号干扰，正在重试...');
+          setStatusMessage('信号衰减，重连中...');
           if (isAutoSwitch) handleNextNetwork();
           else stopAllAudio();
         },
@@ -190,7 +205,7 @@ const App: React.FC = () => {
     const ctx = await initAudio();
     setCurrentNewsId(item.id);
     setIsSpeaking(true);
-    setStatusMessage(`正在合成快讯: ${item.title}`);
+    setStatusMessage(`正在解码快讯: ${item.title}`);
     try {
       const base64Audio = await generateSpeech(item.summary, selectedVoice);
       const audioBytes = decode(base64Audio);
@@ -204,6 +219,8 @@ const App: React.FC = () => {
     } catch (e) { setIsSpeaking(false); setStatusMessage('播放出错'); }
   };
 
+  const isAudioOnlySource = activeNetwork && NetworkAudioMap[activeNetwork];
+
   return (
     <div className="min-h-screen flex flex-col selection:bg-blue-500/30">
       <Header 
@@ -212,19 +229,21 @@ const App: React.FC = () => {
         onToggleLive={() => isLiveMode ? stopAllAudio() : selectNetwork(NewsNetwork.SKY)} 
       />
 
+      {/* 音频基础设施 */}
       <audio ref={silentAudioRef} loop playsInline src="data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAA==" />
+      <audio ref={streamAudioRef} crossOrigin="anonymous" playsInline />
 
       <main className="flex-grow max-w-7xl mx-auto w-full px-4 md:px-8 py-6">
         <section className="mb-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
             <div className="flex items-center gap-3">
-               <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">电台频率选择</h3>
+               <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">电台频率 (MHz)</h3>
                <button 
                   onClick={() => setIsAutoSwitch(!isAutoSwitch)}
                   className={`flex items-center gap-2 px-3 py-1 rounded-full border transition-all ${isAutoSwitch ? 'bg-blue-600/20 border-blue-500 text-blue-400' : 'bg-slate-800 border-slate-700 text-slate-500'}`}
                >
                   <div className={`w-2 h-2 rounded-full ${isAutoSwitch ? 'bg-blue-400 animate-pulse' : 'bg-slate-600'}`}></div>
-                  <span className="text-[10px] font-bold">自动巡航播报 {isAutoSwitch ? 'ON' : 'OFF'}</span>
+                  <span className="text-[10px] font-bold">巡航模式 {isAutoSwitch ? 'ON' : 'OFF'}</span>
                </button>
             </div>
             <div className="flex bg-slate-900 border border-slate-800 rounded-xl p-1">
@@ -235,7 +254,7 @@ const App: React.FC = () => {
               <button 
                 onClick={() => { setIsOfficialStream(true); if(activeNetwork) selectNetwork(activeNetwork); }}
                 className={`px-4 py-2 rounded-lg text-[10px] font-bold transition-all ${isOfficialStream ? 'bg-red-600 text-white shadow-lg' : 'text-slate-500'}`}
-              >原声视频 (需VPN)</button>
+              >官方源 (含直接音频)</button>
             </div>
           </div>
           
@@ -256,6 +275,11 @@ const App: React.FC = () => {
                   {net.charAt(0)}
                 </div>
                 <span className={`text-[9px] font-black uppercase truncate px-1 tracking-tighter ${activeNetwork === net ? 'text-white' : 'text-slate-400'}`}>{net.split(' ')[0]}</span>
+                {isOfficialStream && NetworkAudioMap[net] && (
+                    <div className="absolute top-1 right-1">
+                        <svg className="w-3 h-3 text-red-500" fill="currentColor" viewBox="0 0 20 20"><path d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-9-3a1 1 0 00-1 1v5a1 1 0 001 1h2a1 1 0 001-1V8a1 1 0 00-1-1H9z"/></svg>
+                    </div>
+                )}
               </button>
             ))}
           </div>
@@ -266,7 +290,7 @@ const App: React.FC = () => {
         }`}>
           {isLiveMode ? (
             <>
-              {isOfficialStream && activeNetwork && NetworkStreamMap[activeNetwork] && !needsInteraction && (
+              {isOfficialStream && activeNetwork && NetworkStreamMap[activeNetwork] && !isAudioOnlySource && !needsInteraction && (
                 <div className="absolute inset-0 z-0 opacity-40">
                    <iframe 
                     src={`https://www.youtube.com/embed/${NetworkStreamMap[activeNetwork]}?autoplay=1&mute=0&controls=0&modestbranding=1&rel=0`}
@@ -284,16 +308,16 @@ const App: React.FC = () => {
                         className="group relative w-44 h-44 flex items-center justify-center transition-all active:scale-90"
                     >
                         <div className="absolute inset-0 bg-blue-500 rounded-full animate-ping opacity-20"></div>
-                        <div className="w-28 h-28 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-[0_0_80px_rgba(37,99,235,0.4)] hover:bg-blue-500 transition-colors">
-                            <svg className="w-12 h-12 fill-current ml-1" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                        <div className={`w-28 h-28 rounded-full flex items-center justify-center shadow-2xl transition-colors ${isOfficialStream ? 'bg-red-600 hover:bg-red-500 shadow-red-600/40' : 'bg-blue-600 hover:bg-blue-500 shadow-blue-600/40'}`}>
+                            <svg className="w-12 h-12 fill-current ml-1 text-white" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
                         </div>
                     </button>
                     <div>
-                        <h4 className="text-3xl font-black text-white tracking-[0.4em] uppercase mb-4">开启英语广播</h4>
+                        <h4 className="text-3xl font-black text-white tracking-[0.4em] uppercase mb-4">连接频道</h4>
                         <p className="text-slate-400 text-base max-w-md mx-auto leading-relaxed">
                             {isOfficialStream 
-                                ? "官方流受地区限制可能无法加载。推荐点击右上角切换至【AI 播报】模式，免 VPN 流畅磨耳朵。"
-                                : "正在建立神经网络链接。点击按钮开始收听。"}
+                                ? "官方流可能受网络环境限制。如果无法载入声音，请点击上方蓝色按钮切换至【AI 播报】模式，支持国内极速直连。"
+                                : "正在对齐数字频率。点击按钮开始收听。"}
                         </p>
                     </div>
                   </div>
@@ -309,7 +333,7 @@ const App: React.FC = () => {
                     </div>
 
                     <div className={`text-9xl sm:text-[14rem] font-black font-mono tracking-tighter transition-all duration-700 select-none ${isTuning ? 'blur-3xl opacity-20' : 'blur-0 opacity-100'}`}>
-                      {activeNetwork ? (activeNetwork.length * 5.5 + 87.5).toFixed(2) : '00.00'}
+                      {activeNetwork ? (activeNetwork.length * 5.5 + 87.5).toFixed(1) : '00.0'}
                       <span className="text-2xl ml-2 opacity-20 font-light">MHz</span>
                     </div>
 
@@ -332,7 +356,7 @@ const App: React.FC = () => {
                           {activeNetwork}
                         </p>
                         <div className="flex items-center gap-6 text-slate-500 text-xs font-mono mt-4">
-                            <span>MODE: {isOfficialStream ? 'OFFICIAL RAW' : 'AI ENHANCED'}</span>
+                            <span>MODE: {isOfficialStream ? (isAudioOnlySource ? 'DIRECT AUDIO' : 'VIDEO STREAM') : 'AI ENHANCED'}</span>
                             <span className="w-2 h-2 bg-slate-800 rounded-full"></span>
                             <span>AUTO-SCAN: {isAutoSwitch ? 'ENABLED' : 'DISABLED'}</span>
                         </div>
@@ -348,7 +372,7 @@ const App: React.FC = () => {
               </div>
               <h2 className="text-4xl font-black mb-6 serif tracking-tight">AI 英语电台</h2>
               <p className="text-slate-400 text-lg leading-relaxed font-light">
-                针对中国用户优化。选择左侧频道开启 <span className="text-blue-500 font-bold underline">AI 播报</span> 模式，免 VPN 收听全球新闻，系统将自动循环切换。
+                针对多端优化的英语收听器。点击上方切换至 <span className="text-blue-500 font-bold underline">AI 播报</span>，无需翻墙即可流畅磨耳朵。
               </p>
             </div>
           )}
@@ -381,7 +405,7 @@ const App: React.FC = () => {
               <div className="flex-1 overflow-hidden">
                 <p className="text-[11px] font-black text-slate-500 uppercase tracking-[0.4em] truncate mb-1">{activeNetwork || '系统就绪'}</p>
                 <p className="text-base font-bold text-white truncate uppercase tracking-tight">
-                    {isOfficialStream ? '正在同步原声信号' : `AI 广播: ${activeNetwork} 直播中 ${isAutoSwitch ? '(自动巡航)' : ''}`}
+                    {isOfficialStream ? (isAudioOnlySource ? `正在接收 ${activeNetwork} 音频信号` : '官方视频同步中') : `AI 广播: ${activeNetwork} 直播中 ${isAutoSwitch ? '(自动巡航)' : ''}`}
                 </p>
               </div>
             </div>

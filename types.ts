@@ -22,30 +22,35 @@ export enum NewsNetwork {
   BBC = 'BBC World',
   CNN = 'CNN Live',
   ABC = 'ABC News',
-  CBS = 'CBS News',
-  NBC = 'NBC News',
-  SKY = 'Sky News',
+  NPR = 'NPR News',
+  VOA = 'VOA Learning',
   BLOOMBERG = 'Bloomberg',
   AL_JAZEERA = 'Al Jazeera',
-  FRANCE24 = 'France 24',
+  SKY = 'Sky News',
   DW = 'DW News',
   CNA = 'CNA Asia',
+  RFI = 'RFI English',
   GLOBAL_AI = 'AI 综合电台'
 }
 
-// 经过 2025 年实时验证的稳定官方直播 ID
+// 视频流 (YouTube)
 export const NetworkStreamMap: Record<string, string> = {
   [NewsNetwork.BBC]: 'fSAt4m9S_A4', 
   [NewsNetwork.CNN]: 'unWpYvAis60', 
   [NewsNetwork.ABC]: 'gCNeDWCI0vo',
-  [NewsNetwork.CBS]: 'fSAt4m9S_A4',
-  [NewsNetwork.NBC]: 'unWpYvAis60',
-  [NewsNetwork.SKY]: '9Auq9mYqrEE', // Sky News 嵌入支持度最高
   [NewsNetwork.BLOOMBERG]: 'dp8PhLsUcFE', 
   [NewsNetwork.AL_JAZEERA]: 'Xm66K_1XG_8',
-  [NewsNetwork.FRANCE24]: 'vS_f5_Yy8Xg',
-  [NewsNetwork.DW]: 'gv_m0p_q7vE', // 最新 DW News ID
+  [NewsNetwork.SKY]: '9Auq9mYqrEE',
+  [NewsNetwork.DW]: 'gv_m0p_q7vE',
   [NewsNetwork.CNA]: 'XWqH6L8H700'
+};
+
+// 纯音频流 (Direct Audio URLs - 更有可能绕过限制并直接播放声音)
+export const NetworkAudioMap: Record<string, string> = {
+  [NewsNetwork.NPR]: 'https://npr-ice.streamguys1.com/p_9101_high_mp3',
+  [NewsNetwork.VOA]: 'https://voa-28.akacast.akamaitechnologies.net/7/54/322040/v1/gibson.akacast.akamaitechnologies.net/voa-28',
+  [NewsNetwork.RFI]: 'http://icepe1.infomaniak.ch/rfien-96.mp3',
+  [NewsNetwork.BBC]: 'https://stream.live.vc.bbcmedia.co.uk/bbc_world_service'
 };
 
 export interface PlayerState {
