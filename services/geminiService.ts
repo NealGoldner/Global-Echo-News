@@ -5,10 +5,9 @@ import { NewsCategory, NewsItem, VoiceName, VoiceMap, NewsNetwork } from "../typ
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export async function fetchLatestNews(category: NewsCategory): Promise<NewsItem[]> {
-  const prompt = `Provide the top 3-4 news stories in English for the category: ${category}. 
-    Focus on providing clear, high-quality information suitable for non-native English learners.
-    For each story, include a compelling title and a concise summary (exactly 3 sentences).
-    Use accessible yet professional language.`;
+  const prompt = `Provide 3 short, high-impact news stories in English for: ${category}. 
+    Each story must have a title and a 3-sentence summary in clear, professional English.
+    Ensure all information is from the last 24 hours.`;
 
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
@@ -31,21 +30,12 @@ export async function fetchLatestNews(category: NewsCategory): Promise<NewsItem[
   });
 
   const rawData = JSON.parse(response.text || "[]");
-  const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-  
-  const sources = groundingChunks
-    .filter((chunk: any) => chunk.web)
-    .map((chunk: any) => ({
-      title: chunk.web.title || "Source",
-      uri: chunk.web.uri
-    }));
-
   return rawData.map((item: any, index: number) => ({
     ...item,
     id: `${category}-${index}-${Date.now()}`,
     category,
     timestamp: new Date().toLocaleTimeString('zh-CN'),
-    sources: sources.length > 0 ? sources : []
+    sources: []
   }));
 }
 
@@ -53,7 +43,7 @@ export async function generateSpeech(text: string, voiceDisplay: VoiceName): Pro
   const actualVoice = VoiceMap[voiceDisplay] || 'Zephyr';
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash-preview-tts",
-    contents: [{ parts: [{ text: `Please read this news clearly and articulately for an English learner: ${text}` }] }],
+    contents: [{ parts: [{ text: `Broadcast clearly: ${text}` }] }],
     config: {
       responseModalities: [Modality.AUDIO],
       speechConfig: {
@@ -65,10 +55,7 @@ export async function generateSpeech(text: string, voiceDisplay: VoiceName): Pro
   });
 
   const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-  if (!base64Audio) {
-    throw new Error("Speech generation failed");
-  }
-
+  if (!base64Audio) throw new Error("TTS Failed");
   return base64Audio;
 }
 
@@ -81,21 +68,16 @@ export const connectLiveNews = (callbacks: any, network: NewsNetwork = NewsNetwo
       speechConfig: {
         voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } },
       },
-      thinkingConfig: {
-        thinkingBudget: 24576
-      },
-      systemInstruction: `SYSTEM: You are the voice of Global Echo Radio, specialized in broadcasting English news for global listeners, including many English learners in Asia.
-      
-      Your current channel identity is: ${network}.
+      thinkingConfig: { thinkingBudget: 12000 },
+      systemInstruction: `SYSTEM: You are the lead anchor for Global Echo AI Radio (Channel: ${network}).
       
       MANDATE:
-      1. REAL-TIME NEWS: Use Google Search to find the most recent world news from the last few hours.
-      2. CLEAR ARTICULATION: Speak clearly and at a moderate pace. Do not use overly obscure slang. Focus on professional news reporting style.
-      3. DEEP ANALYSIS: After reporting a fact, briefly explain why it matters to give listeners context.
-      4. RADIO FLOW: Use transitions like "Coming up next..." or "In other news around the globe...".
-      5. ENGAGEMENT: Periodically remind listeners they are tuned into Global Echo's AI Neural Radio.
+      1. REAL-TIME: Search Google for the top 3 headlines right now.
+      2. CLARITY: Speak clearly for advanced English learners. Maintain a professional BBC/NPR style.
+      3. FLOW: Keep the broadcast to 2 minutes. Summarize each news story concisely.
+      4. ENDING: Always end your broadcast with exactly: "That concludes our bulletin for ${network}. Station switch in 5 seconds." and then STOP speaking.
       
-      Start your broadcast now with the most impactful headline of the hour.`,
+      Begin the broadcast now with a global impact headline.`,
       tools: [{ googleSearch: {} }]
     },
   });
