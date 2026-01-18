@@ -1,12 +1,12 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import Header from './components/Header';
-import CategoryFilter from './components/CategoryFilter';
-import NewsCard from './components/NewsCard';
-import AudioVisualizer from './components/AudioVisualizer';
-import { NewsCategory, NewsItem, VoiceName, NewsNetwork, NetworkStreamMap } from './types';
-import { fetchLatestNews, generateSpeech, connectLiveNews } from './services/geminiService';
-import { decode, decodeAudioData } from './utils/audio';
+import Header from './components/Header.tsx';
+import CategoryFilter from './components/CategoryFilter.tsx';
+import NewsCard from './components/NewsCard.tsx';
+import AudioVisualizer from './components/AudioVisualizer.tsx';
+import { NewsCategory, NewsItem, VoiceName, NewsNetwork, NetworkStreamMap } from './types.ts';
+import { fetchLatestNews, generateSpeech, connectLiveNews } from './services/geminiService.ts';
+import { decode, decodeAudioData } from './utils/audio.ts';
 
 const App: React.FC = () => {
   const [activeCategory, setActiveCategory] = useState<NewsCategory>(NewsCategory.GENERAL);

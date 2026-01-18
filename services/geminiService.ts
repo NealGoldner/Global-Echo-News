@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type, Modality } from "@google/genai";
-import { NewsCategory, NewsItem, VoiceName, VoiceMap, NewsNetwork } from "../types";
+import { NewsCategory, NewsItem, VoiceName, VoiceMap, NewsNetwork } from "../types.ts";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
