@@ -2,6 +2,7 @@
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { NewsCategory, NewsItem, VoiceName, VoiceMap, NewsNetwork } from "../types.ts";
 
+// 保持这种写法以符合开发规范
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export async function fetchLatestNews(category: NewsCategory): Promise<NewsItem[]> {

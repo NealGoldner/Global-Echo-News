@@ -5,6 +5,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>全球回响新闻 - 您的 AI 英语新闻电台</title>
+    <!-- 核心修复：必须在所有脚本执行前注入 process 对象 -->
+    <script>
+      window.process = { env: { NODE_ENV: 'production' } };
+    </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
@@ -63,7 +67,6 @@
 </head>
 <body>
     <div id="root"></div>
-    <!-- 显式加载入口文件 -->
     <script type="module" src="index.tsx"></script>
 </body>
 </html>
