@@ -33,9 +33,14 @@ export enum NewsNetwork {
   GLOBAL_AI = 'AI 综合电台'
 }
 
-// 仅保留 BBC，其他由 AI 模拟。
+// 扩展直播流地图：增加了多个稳定的官方音频源
 export const NetworkAudioMap: Record<string, string> = {
-  [NewsNetwork.BBC]: 'https://stream.live.vc.bbcmedia.co.uk/bbc_world_service'
+  [NewsNetwork.BBC]: 'https://stream.live.vc.bbcmedia.co.uk/bbc_world_service',
+  [NewsNetwork.NPR]: 'https://npr-ice.streamguys1.com/live.mp3',
+  [NewsNetwork.ABC]: 'https://live-radio01.mediahubaustralia.com/2ANW/mp3/',
+  [NewsNetwork.SKY]: 'https://radio.canstream.co.uk:8075/live.mp3',
+  [NewsNetwork.CNA]: 'https://mediacorp.leanstream.co/mediacorp/cna938fm.stream/chunk.m3u8',
+  [NewsNetwork.RFI]: 'https://rfienanglais64k.ice.infomaniak.ch/rfienanglais-64.mp3'
 };
 
 export enum VoiceName {

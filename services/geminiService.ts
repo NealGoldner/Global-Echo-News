@@ -2,14 +2,14 @@
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { NewsCategory, NewsItem, VoiceName, VoiceMap, NewsNetwork } from "../types.ts";
 
-const API_KEY = process.env.API_KEY;
+const getAIClient = () => new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
 export async function fetchLatestNews(category: NewsCategory): Promise<NewsItem[]> {
-  const ai = new GoogleGenAI({ apiKey: API_KEY || '' });
+  const ai = getAIClient();
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `Search for 3 latest news in ${category} category in English. Provide detailed summaries. Return as JSON.`,
+      contents: `Search for the 3 most recent news headlines in ${category} category (English). Focus on today's events. Return as JSON.`,
       config: {
         tools: [{ googleSearch: {} }],
         responseMimeType: "application/json",
@@ -35,16 +35,17 @@ export async function fetchLatestNews(category: NewsCategory): Promise<NewsItem[
       sources: []
     }));
   } catch (e: any) {
-    throw new Error(e.message || "Fetch News Failed");
+    console.error("News fetch error:", e);
+    return [];
   }
 }
 
 export async function generateSpeech(text: string, voiceDisplay: VoiceName): Promise<string> {
-  const ai = new GoogleGenAI({ apiKey: API_KEY || '' });
+  const ai = getAIClient();
   const actualVoice = VoiceMap[voiceDisplay] || 'Zephyr';
   const response = await ai.models.generateContent({
     model: "gemini-2.5-flash-preview-tts",
-    contents: [{ parts: [{ text: `Read this news report professionally: ${text}` }] }],
+    contents: [{ parts: [{ text: `Read this news report: ${text}` }] }],
     config: {
       responseModalities: [Modality.AUDIO],
       speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: actualVoice } } },
@@ -53,24 +54,27 @@ export async function generateSpeech(text: string, voiceDisplay: VoiceName): Pro
   return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || "";
 }
 
-export const connectLiveNews = (callbacks: any, network: NewsNetwork = NewsNetwork.GLOBAL_AI) => {
-  const ai = new GoogleGenAI({ apiKey: API_KEY || '' });
+export const connectLiveNews = (callbacks: any, network: NewsNetwork, newsContext: string) => {
+  const ai = getAIClient();
   return ai.live.connect({
     model: 'gemini-2.5-flash-native-audio-preview-12-2025',
     callbacks,
     config: {
       responseModalities: [Modality.AUDIO],
       systemInstruction: `
-        You are a professional radio news anchor for ${network}. 
+        You are a live radio news anchor for ${network}. 
+        Current Headlines to report: ${newsContext}
         
-        CRITICAL INSTRUCTION:
-        1. DO NOT WAIT. As soon as you hear from the user or the session starts, START SPEAKING IMMEDIATELY.
-        2. Your first sentence must be: "This is ${network}, bringing you the latest updates from across the globe."
-        3. While you are speaking your intro, use Google Search to find the absolute latest headlines for today.
-        4. Continue broadcasting like a real 24/7 news station. If there's a delay in searching, fill it with professional radio banter: "We are just checking our news wires for the latest developments in..."
-        5. Maintain an authoritative, clear, and engaging English broadcast tone.
+        INSTRUCTIONS:
+        1. Start speaking IMMEDIATELY with: "This is ${network}, broadcasting live."
+        2. Introduce yourself and start reporting the current headlines provided above.
+        3. Keep the tone professional, rhythmic, and clear (standard English).
+        4. Fill gaps with typical radio phrases: "Stay with us for more," "In other news," etc.
+        5. You are the ONLY source of audio. Make it sound like a real 24/7 radio station.
       `,
-      tools: [{ googleSearch: {} }]
+      speechConfig: {
+        voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } }
+      }
     },
   });
 };

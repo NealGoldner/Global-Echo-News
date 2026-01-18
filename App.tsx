@@ -42,7 +42,7 @@ const App: React.FC = () => {
     
     if (streamAudioRef.current) {
       streamAudioRef.current.pause();
-      streamAudioRef.current.removeAttribute('src');
+      streamAudioRef.current.src = "";
       streamAudioRef.current.load();
     }
 
@@ -66,32 +66,25 @@ const App: React.FC = () => {
     const ctx = await initAudio();
     nextStartTimeRef.current = ctx.currentTime;
 
+    const headlines = news.slice(0, 3).map(n => n.title).join(". ");
+    const newsContext = headlines || "Global breaking news and weather updates.";
+
     try {
       const callbacks = {
         onopen: () => {
-          setStatusMessage(`${network} 已连接，正在启动播报...`);
-          // 这里的关键：连接一开，立刻推一个消息让 AI 开口，不要等它自己想
-          liveSessionRef.current?.sendRealtimeInput?.({ 
-            media: { data: "", mimeType: "audio/pcm;rate=16000" } 
-          });
-          // 兜底：发送一段文字提示
-          setTimeout(() => {
-            liveSessionRef.current?.send?.({ parts: [{ text: "Start your news broadcast now." }] });
-          }, 100);
+          setStatusMessage(`${network} 已连通`);
         },
         onmessage: async (message: any) => {
-          // 只要收到任何 modelTurn，说明 AI 开始说话了
           if (message.serverContent?.modelTurn) {
             setIsThinking(false);
             setIsConnecting(false);
-            setStatusMessage(`${network} 播报中`);
+            setStatusMessage(`${network} 直播中`);
           }
 
           const parts = message.serverContent?.modelTurn?.parts || [];
           for (const part of parts) {
             if (part.inlineData?.data && audioContextRef.current) {
               const currentCtx = audioContextRef.current;
-              // 确保时间轴平滑
               nextStartTimeRef.current = Math.max(nextStartTimeRef.current, currentCtx.currentTime);
               
               const audioBytes = decode(part.inlineData.data);
@@ -110,18 +103,24 @@ const App: React.FC = () => {
         },
         onerror: (e: any) => {
           console.error("Live session error:", e);
-          setStatusMessage('信号干扰，请重试');
+          setStatusMessage('信号弱，请重试');
           setIsThinking(false);
           setIsConnecting(false);
-        },
-        onclose: () => {
-          setStatusMessage('连接已关闭');
         }
       };
-      liveSessionRef.current = await connectLiveNews(callbacks, network);
+
+      const sessionPromise = connectLiveNews(callbacks, network, newsContext);
+      sessionPromise.then((session) => {
+        liveSessionRef.current = session;
+        session.send({ parts: [{ text: "Please start the radio show now." }] });
+      }).catch(err => {
+        setStatusMessage('网络故障');
+        setIsConnecting(false);
+        setIsThinking(false);
+      });
+
     } catch (e: any) {
-      setStatusMessage('连接超时');
-      setIsThinking(false);
+      setStatusMessage('初始化失败');
       setIsConnecting(false);
     }
   };
@@ -129,16 +128,21 @@ const App: React.FC = () => {
   const playOfficialStream = (url: string, network: NewsNetwork) => {
     if (!streamAudioRef.current) return;
     setIsConnecting(true);
-    setStatusMessage(`正在连接 ${network} 直播源...`);
+    setStatusMessage(`正在连接 ${network} 官方广播源...`);
     
     streamAudioRef.current.src = url;
-    streamAudioRef.current.play().then(() => {
-      setIsConnecting(false);
-      setStatusMessage(`${network} 官方流播放中`);
-    }).catch((e) => {
-      console.warn("Official stream failed, switching to AI mode:", e);
-      startAILive(network);
-    });
+    const playPromise = streamAudioRef.current.play();
+    
+    if (playPromise !== undefined) {
+      playPromise.then(() => {
+        setIsConnecting(false);
+        setStatusMessage(`${network} 官方原声直播中`);
+      }).catch((e) => {
+        console.warn("Official stream failed:", e);
+        setStatusMessage('连接失败，尝试 AI 模拟');
+        startAILive(network);
+      });
+    }
   };
 
   const selectNetwork = (network: NewsNetwork) => {
@@ -150,12 +154,10 @@ const App: React.FC = () => {
 
   const handleSyncSignal = async () => {
     setNeedsSync(false);
-    // 在这里点击同步时，彻底激活 AudioContext
     await initAudio();
     
     if (activeNetwork) {
       const officialUrl = NetworkAudioMap[activeNetwork];
-      // 只有 BBC 走官方流，其他一律走 AI 模拟，确保 100% 成功率
       if (officialUrl) {
         playOfficialStream(officialUrl, activeNetwork);
       } else {
@@ -180,14 +182,14 @@ const App: React.FC = () => {
     stopAllAudio();
     const ctx = await initAudio();
     setCurrentNewsId(item.id);
-    setStatusMessage('正在生成语音摘要...');
+    setStatusMessage('TTS 生成中...');
     try {
       const base64Audio = await generateSpeech(item.summary, VoiceName.ZEPHYR);
       const audioBuffer = await decodeAudioData(decode(base64Audio), ctx, 24000, 1);
       const source = ctx.createBufferSource();
       source.buffer = audioBuffer;
       source.connect(ctx.destination);
-      source.onended = () => { setCurrentNewsId(null); setStatusMessage('就绪'); };
+      source.onended = () => { if(currentNewsId === item.id) setCurrentNewsId(null); setStatusMessage('就绪'); };
       source.start();
       activeSourcesRef.current.add(source);
     } catch (e) { 
@@ -202,57 +204,93 @@ const App: React.FC = () => {
       <main className="flex-grow max-w-7xl mx-auto w-full px-4 py-6">
         <section className="mb-8">
           <div className="flex justify-between items-end mb-4 px-1">
-            <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">选择频道</h3>
-            <span className="text-[9px] text-blue-500 font-bold tracking-tighter uppercase">AI & 官方源自动切换</span>
+            <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">频道收听选择</h3>
+            <div className="flex items-center gap-3">
+               <div className="flex items-center gap-1">
+                  <div className="w-1.5 h-1.5 bg-red-500 rounded-full shadow-[0_0_5px_rgba(239,68,68,0.5)]"></div>
+                  <span className="text-[8px] text-slate-500 font-bold uppercase">官方原声点</span>
+               </div>
+               <div className="flex items-center gap-1">
+                  <div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>
+                  <span className="text-[8px] text-slate-500 font-bold uppercase">AI 模拟</span>
+               </div>
+            </div>
           </div>
-          <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-8 gap-2">
-            {Object.values(NewsNetwork).map((net) => (
-              <button
-                key={net}
-                onClick={() => selectNetwork(net)}
-                className={`relative py-4 rounded-2xl border-2 transition-all active:scale-95 flex flex-col items-center gap-1.5 ${
-                  activeNetwork === net ? 'bg-blue-600 border-blue-500 shadow-xl' : 'bg-slate-900 border-slate-800'
-                }`}
-              >
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-[11px] ${activeNetwork === net ? 'bg-white text-black' : 'bg-slate-800 text-slate-500'}`}>{net.charAt(0)}</div>
-                <span className={`text-[9px] font-bold uppercase truncate px-1 ${activeNetwork === net ? 'text-white' : 'text-slate-400'}`}>{net.split(' ')[0]}</span>
-              </button>
-            ))}
+          <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-8 gap-3">
+            {Object.values(NewsNetwork).map((net) => {
+              const hasOfficialSignal = !!NetworkAudioMap[net];
+              const isActive = activeNetwork === net;
+              return (
+                <button
+                  key={net}
+                  onClick={() => selectNetwork(net)}
+                  className={`relative py-4 rounded-2xl border-2 transition-all active:scale-95 flex flex-col items-center gap-1.5 group ${
+                    isActive 
+                      ? (hasOfficialSignal ? 'bg-red-600/10 border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.3)]' : 'bg-blue-600 border-blue-500 shadow-xl') 
+                      : 'bg-slate-900 border-slate-800 hover:border-slate-700'
+                  }`}
+                >
+                  {/* 直播信号标识点 */}
+                  {hasOfficialSignal && (
+                    <div className="absolute top-2 right-2 flex items-center">
+                      <div className="w-1.5 h-1.5 bg-red-500 rounded-full shadow-[0_0_8px_rgba(239,68,68,0.9)] animate-pulse"></div>
+                    </div>
+                  )}
+
+                  <div className={`w-9 h-9 rounded-full flex items-center justify-center font-black text-[12px] transition-all ${
+                    isActive 
+                      ? (hasOfficialSignal ? 'bg-red-500 text-white scale-110' : 'bg-white text-black scale-110') 
+                      : 'bg-slate-800 text-slate-500 group-hover:bg-slate-700'
+                  }`}>
+                    {net.charAt(0)}
+                  </div>
+                  <span className={`text-[9px] font-bold uppercase truncate px-1 ${
+                    isActive ? 'text-white' : 'text-slate-500 group-hover:text-slate-400'
+                  }`}>
+                    {net.split(' ')[0]}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </section>
 
         <section className={`mb-8 p-12 rounded-[2.5rem] border-2 transition-all duration-500 flex flex-col items-center text-center relative overflow-hidden ${
-           isLiveMode ? 'bg-black border-slate-700 shadow-[0_0_50px_rgba(37,99,235,0.1)]' : 'bg-slate-900/30 border-slate-800'
+           isLiveMode 
+            ? (!!NetworkAudioMap[activeNetwork!] ? 'bg-red-950/5 border-red-900/30' : 'bg-black border-slate-700 shadow-[0_0_50px_rgba(37,99,235,0.1)]')
+            : 'bg-slate-900/30 border-slate-800'
         }`}>
           {isLiveMode ? (
             <div className="z-10 w-full flex flex-col items-center">
                <div className="text-8xl font-black font-mono mb-4 text-white">
-                 {(activeNetwork?.length || 0) * 3 + 88.5}<span className="text-lg opacity-30 ml-2">MHz</span>
+                 {(activeNetwork?.length || 0) * 3 + 89.1}<span className="text-lg opacity-30 ml-2">MHz</span>
                </div>
-               <p className="text-blue-500 font-black tracking-[0.4em] uppercase text-lg mb-6">{activeNetwork}</p>
+               <p className={`${!!NetworkAudioMap[activeNetwork!] ? 'text-red-500' : 'text-blue-400'} font-black tracking-[0.4em] uppercase text-lg mb-6`}>
+                 {activeNetwork}
+               </p>
                
                {needsSync ? (
                  <button 
                   onClick={handleSyncSignal}
-                  className="px-10 py-5 bg-blue-600 hover:bg-blue-500 text-white rounded-full font-black text-sm tracking-widest animate-bounce shadow-2xl shadow-blue-600/50"
+                  className={`px-10 py-5 ${!!NetworkAudioMap[activeNetwork!] ? 'bg-red-600 hover:bg-red-500 shadow-red-600/50' : 'bg-blue-600 hover:bg-blue-500 shadow-blue-600/50'} text-white rounded-full font-black text-sm tracking-widest animate-bounce shadow-2xl`}
                  >
-                   CONNECT / 点击同步信号
+                   CONNECT LIVE / 立即收听
                  </button>
                ) : (
                  <div className="flex flex-col items-center gap-4">
                     {(isConnecting || isThinking) ? (
                       <div className="flex flex-col items-center gap-3">
                         <div className="flex gap-1.5 h-6 items-center">
-                          <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></div>
-                          <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce [animation-delay:0.2s]"></div>
-                          <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce [animation-delay:0.4s]"></div>
+                          <div className={`w-2 h-2 ${!!NetworkAudioMap[activeNetwork!] ? 'bg-red-500' : 'bg-blue-500'} rounded-full animate-bounce`}></div>
+                          <div className={`w-2 h-2 ${!!NetworkAudioMap[activeNetwork!] ? 'bg-red-500' : 'bg-blue-500'} rounded-full animate-bounce [animation-delay:0.2s]`}></div>
+                          <div className={`w-2 h-2 ${!!NetworkAudioMap[activeNetwork!] ? 'bg-red-500' : 'bg-blue-500'} rounded-full animate-bounce [animation-delay:0.4s]`}></div>
                         </div>
-                        <p className="text-blue-500 text-[10px] font-black tracking-[0.3em] animate-pulse">正在解码英语信号...</p>
+                        <p className={`${!!NetworkAudioMap[activeNetwork!] ? 'text-red-500' : 'text-blue-500'} text-[10px] font-black tracking-[0.3em] animate-pulse uppercase`}>Syncing Live Broadcast...</p>
                       </div>
                     ) : (
-                      <AudioVisualizer />
+                      <AudioVisualizer isRed={!!NetworkAudioMap[activeNetwork!]} />
                     )}
-                    <p className="text-slate-500 text-[10px] font-mono tracking-widest uppercase">{statusMessage}</p>
+                    <p className="text-slate-500 text-[10px] font-mono tracking-widest uppercase mt-2">{statusMessage}</p>
                  </div>
                )}
             </div>
@@ -261,19 +299,25 @@ const App: React.FC = () => {
               <div className="w-20 h-20 rounded-[2rem] bg-slate-800 mx-auto mb-6 flex items-center justify-center border border-slate-700">
                 <svg className="w-10 h-10 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
               </div>
-              <p className="text-sm font-bold tracking-widest text-slate-300">点击上方电台 开启沉浸式英语</p>
+              <p className="text-sm font-bold tracking-widest text-slate-300">带 <span className="text-red-500">红点</span> 频道为官方实时广播源</p>
             </div>
           )}
         </section>
 
         <section>
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-            <h2 className="text-2xl font-black serif">今日热点摘要</h2>
+            <h2 className="text-2xl font-black serif">今日新闻摘要</h2>
             <CategoryFilter activeCategory={activeCategory} onCategoryChange={setActiveCategory} />
           </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {news.map(n => <NewsCard key={n.id} news={n} isPlaying={currentNewsId === n.id} onPlay={() => playNewsItem(n)} />)}
-          </div>
+          {isLoading ? (
+             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+               {[1,2,3].map(i => <div key={i} className="h-48 bg-slate-900 animate-pulse rounded-2xl border border-slate-800"></div>)}
+             </div>
+          ) : (
+             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+               {news.map(n => <NewsCard key={n.id} news={n} isPlaying={currentNewsId === n.id} onPlay={() => playNewsItem(n)} />)}
+             </div>
+          )}
         </section>
       </main>
 
