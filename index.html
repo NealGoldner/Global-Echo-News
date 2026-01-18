@@ -5,9 +5,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>全球回响新闻 - 您的 AI 英语新闻电台</title>
-    <!-- 核心修复：必须在所有脚本执行前注入 process 对象 -->
+    <!-- 极速注入：防止任何 ESM 模块加载时 ReferenceError -->
     <script>
-      window.process = { env: { NODE_ENV: 'production' } };
+      window.process = window.process || {};
+      window.process.env = window.process.env || {};
+      window.process.env.NODE_ENV = 'production';
     </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
@@ -33,34 +35,16 @@
         .no-scrollbar::-webkit-scrollbar {
             display: none;
         }
-        .glow-text {
-            text-shadow: 0 0 20px currentColor;
-        }
-        .bottom-safe {
-            padding-bottom: calc(1.5rem + var(--sab));
-        }
-        @keyframes slide-up {
-            from { transform: translateY(100%); opacity: 0; }
-            to { transform: translateY(0); opacity: 1; }
-        }
-        .animate-slide-up {
-            animation: slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-        }
-        @keyframes float {
-            0%, 100% { transform: translateY(0); }
-            50% { transform: translateY(-10px); }
-        }
-        .animate-float {
-            animation: float 4s ease-in-out infinite;
-        }
     </style>
 <script type="importmap">
 {
   "imports": {
     "react/": "https://esm.sh/react@^19.2.3/",
     "react": "https://esm.sh/react@^19.2.3",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "@google/genai": "https://esm.sh/@google/genai@^1.37.0"
+    "@google/genai": "https://esm.sh/@google/genai@^1.37.0",
+    "vite": "https://esm.sh/vite@^7.3.1",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.3/"
   }
 }
 </script>

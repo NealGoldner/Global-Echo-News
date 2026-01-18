@@ -2,10 +2,18 @@
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { NewsCategory, NewsItem, VoiceName, VoiceMap, NewsNetwork } from "../types.ts";
 
-// 保持这种写法以符合开发规范
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// 检查 API KEY 是否已在构建时注入
+const API_KEY = process.env.API_KEY;
+
+if (!API_KEY || API_KEY === "undefined") {
+  console.error("API_KEY is missing! Please set it in Cloudflare Pages Environment Variables.");
+}
+
+const ai = new GoogleGenAI({ apiKey: API_KEY || 'MISSING_KEY' });
 
 export async function fetchLatestNews(category: NewsCategory): Promise<NewsItem[]> {
+  if (!API_KEY) throw new Error("API Key 未配置，请在 Cloudflare 后台设置环境变量 API_KEY");
+
   const prompt = `Provide 3 short, high-impact news stories in English for: ${category}. 
     Each story must have a title and a 3-sentence summary in clear, professional English.
     Ensure all information is from the last 24 hours.`;
