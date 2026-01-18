@@ -15,13 +15,20 @@ export async function decodeAudioData(
   sampleRate: number,
   numChannels: number,
 ): Promise<AudioBuffer> {
-  const dataInt16 = new Int16Array(data.buffer);
+  // Ensure we have an even number of bytes for 16-bit PCM (2 bytes per sample)
+  const numSamples = Math.floor(data.byteLength / 2);
+  
+  // CRITICAL: Use data.byteOffset and data.byteLength to ensure we read from the correct slice of the Buffer.
+  // This prevents distortion caused by offset misalignment in the underlying ArrayBuffer.
+  const dataInt16 = new Int16Array(data.buffer, data.byteOffset, numSamples);
+  
   const frameCount = dataInt16.length / numChannels;
   const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
 
   for (let channel = 0; channel < numChannels; channel++) {
     const channelData = buffer.getChannelData(channel);
     for (let i = 0; i < frameCount; i++) {
+      // Normalization: 16-bit Signed Int to 32-bit Float [-1.0, 1.0]
       channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
     }
   }

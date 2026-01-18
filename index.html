@@ -29,17 +29,25 @@
         .no-scrollbar::-webkit-scrollbar {
             display: none;
         }
-        /* 针对 iOS 的平滑滚动 */
-        .smooth-scroll {
-            -webkit-overflow-scrolling: touch;
-        }
-        /* 模拟数字荧光屏 */
         .glow-text {
-            text-shadow: 0 0 10px currentColor;
+            text-shadow: 0 0 20px currentColor;
         }
-        /* 针对 iPhone 16 的底部安全距离适配 */
         .bottom-safe {
             padding-bottom: calc(1.5rem + var(--sab));
+        }
+        @keyframes slide-up {
+            from { transform: translateY(100%); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        .animate-slide-up {
+            animation: slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+        .animate-float {
+            animation: float 4s ease-in-out infinite;
         }
     </style>
 <script type="importmap">

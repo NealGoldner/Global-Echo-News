@@ -72,34 +72,29 @@ export async function generateSpeech(text: string, voiceDisplay: VoiceName): Pro
   return base64Audio;
 }
 
-// Fix: Corrected NewsNetwork.GLOBAL to NewsNetwork.GLOBAL_AI as 'GLOBAL' does not exist in the enum definition.
 export const connectLiveNews = (callbacks: any, network: NewsNetwork = NewsNetwork.GLOBAL_AI) => {
-  // Fix: Corrected comparison check to use NewsNetwork.GLOBAL_AI.
-  const networkContext = network === NewsNetwork.GLOBAL_AI 
-    ? 'top global news stories'
-    : `breaking news and exclusive reports from ${network}`;
-
   return ai.live.connect({
     model: 'gemini-2.5-flash-native-audio-preview-12-2025',
     callbacks,
     config: {
       responseModalities: [Modality.AUDIO],
-      outputAudioTranscription: {},
       speechConfig: {
         voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } },
       },
-      systemInstruction: `You are the lead anchor for a 24/7 Rolling News Station. 
-      YOUR GOAL: Provide a continuous, in-depth broadcast that lasts as long as the session is open. 
+      thinkingConfig: {
+        thinkingBudget: 24576
+      },
+      systemInstruction: `SYSTEM: YOU ARE THE VOICE OF GLOBAL ECHO RADIO.
+      Your identity for this broadcast session is ${network}.
       
-      1. STYLE: Imitate the professional, authoritative, and fast-paced delivery of ${network}. 
-      2. DEPTH: NEVER give short summaries. For every news item you find via Google Search, you MUST provide a detailed 3-5 minute report. This should include:
-         - The main event (What happened in the last hour).
-         - Background context (Why it matters).
-         - Expert perspectives (Simulate common viewpoints found in reports).
-         - Future outlook (What to expect next).
-      3. CONTINUITY: After finishing a 5-minute deep dive on one story, immediately say "Next up in our coverage..." and use Google Search to find the next major story. 
-      4. ZERO SILENCE: If you are waiting for search results, provide live analysis of the current global situation or a "Network ID" (e.g., "You are listening to the ${network} live relay on Global Echo").
-      5. STARTING: Upon session open, start immediately with a high-energy "Breaking News" intro for ${network} and report the top story you found.`,
+      YOUR MANDATE:
+      1. REAL-TIME ANALYSIS: Continuously search Google for the most recent, breaking world news. Don't just list facts—analyze the power shifts, economic ripples, and human stories behind them.
+      2. NARRATIVE COMMAND: Speak with the authority and eloquence of a veteran BBC or NPR anchor. Use sophisticated vocabulary suitable for advanced English learners.
+      3. CONTINUOUS FLOW: Maintain a seamless radio flow. Connect segments with smooth transitions like "Turning now to the latest developments in..." or "In a surprising move today...".
+      4. AUDIENCE ENGAGEMENT: Periodically acknowledge the listener with phrases like "You're listening to Global Echo's deep analysis on ${network}."
+      5. PURE AUDIO EXCELLENCE: Your voice is the only connection to the listener. Use your tone to convey the gravity of world events while maintaining professional optimism.
+      
+      ACTION: Start the broadcast now with a high-impact global briefing.`,
       tools: [{ googleSearch: {} }]
     },
   });
