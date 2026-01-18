@@ -17,7 +17,8 @@ const App: React.FC = () => {
   const [isLiveMode, setIsLiveMode] = useState(false);
   const [selectedVoice, setSelectedVoice] = useState<VoiceName>(VoiceName.ZEPHYR);
   const [activeNetwork, setActiveNetwork] = useState<NewsNetwork | null>(null);
-  const [isOfficialStream, setIsOfficialStream] = useState(false); // 默认选择 AI 模式，确保国内用户可用
+  const [isOfficialStream, setIsOfficialStream] = useState(false); // 默认为 AI 模式，国内环境最稳
+  const [isAutoSwitch, setIsAutoSwitch] = useState(true); // 默认开启自动换台
   const [isTuning, setIsTuning] = useState(false);
   const [needsInteraction, setNeedsInteraction] = useState(false);
   const [dataRate, setDataRate] = useState(0); 
@@ -27,6 +28,7 @@ const App: React.FC = () => {
   const nextStartTimeRef = useRef<number>(0);
   const activeSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const silentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const autoSwitchTimeoutRef = useRef<number | null>(null);
 
   const initAudio = async () => {
     if (!audioContextRef.current) {
@@ -41,27 +43,56 @@ const App: React.FC = () => {
     return audioContextRef.current;
   };
 
-  const stopAllAudio = useCallback(() => {
+  const stopAllAudio = useCallback((manual = true) => {
+    if (autoSwitchTimeoutRef.current) {
+      window.clearTimeout(autoSwitchTimeoutRef.current);
+      autoSwitchTimeoutRef.current = null;
+    }
+    
     activeSourcesRef.current.forEach(source => { try { source.stop(); } catch(e) {} });
     activeSourcesRef.current.clear();
+    
     if (liveSessionRef.current) {
       liveSessionRef.current.close();
       liveSessionRef.current = null;
     }
+    
     if (silentAudioRef.current) {
       silentAudioRef.current.pause();
       silentAudioRef.current.currentTime = 0;
     }
     
     setIsSpeaking(false);
-    setIsLiveMode(false);
-    setActiveNetwork(null);
+    if (manual) {
+      setIsLiveMode(false);
+      setActiveNetwork(null);
+      setIsAutoSwitch(false); // 手动停止则关闭自动换台
+    }
     setCurrentNewsId(null);
     nextStartTimeRef.current = 0;
     setIsTuning(false);
     setDataRate(0);
     setNeedsInteraction(false);
   }, []);
+
+  const handleNextNetwork = useCallback(() => {
+    const networks = Object.values(NewsNetwork);
+    const currentIndex = activeNetwork ? networks.indexOf(activeNetwork) : -1;
+    const nextIndex = (currentIndex + 1) % networks.length;
+    const nextNet = networks[nextIndex];
+    
+    // 自动切换逻辑
+    stopAllAudio(false);
+    setActiveNetwork(nextNet);
+    setIsLiveMode(true);
+    setIsTuning(true);
+    
+    // 自动换台无需用户再次点击按钮（如果 AudioContext 已经激活）
+    setTimeout(() => {
+      setIsTuning(false);
+      startAILive(nextNet);
+    }, 1500);
+  }, [activeNetwork, stopAllAudio]);
 
   const handleSyncAudio = async () => {
     await initAudio();
@@ -72,7 +103,7 @@ const App: React.FC = () => {
   };
 
   const selectNetwork = async (network: NewsNetwork) => {
-    stopAllAudio();
+    stopAllAudio(false);
     setActiveNetwork(network);
     setIsLiveMode(true);
     setNeedsInteraction(true); 
@@ -94,7 +125,7 @@ const App: React.FC = () => {
           if (sessionPromise) {
             sessionPromise.then(session => {
               session.sendRealtimeInput({
-                text: `SYSTEM: 开始英语新闻直播。频道：${network}。请搜索并播报最新的全球新闻，语速适中，发音标准。`
+                text: `SYSTEM: 开始英语新闻直播。频道：${network}。请搜索并播报最新的全球新闻，播报时间控制在2-3分钟。播报结束后请保持安静。`
               });
             });
           }
@@ -115,15 +146,31 @@ const App: React.FC = () => {
             activeSourcesRef.current.add(source);
             source.onended = () => activeSourcesRef.current.delete(source);
           }
+          
+          // 如果收到结束标志且开启了自动换台
+          if (message.serverContent?.turnComplete && isAutoSwitch) {
+            // 给用户几秒钟反应时间，然后切换到下一个频道
+            autoSwitchTimeoutRef.current = window.setTimeout(() => {
+                handleNextNetwork();
+            }, 5000);
+          }
         },
-        onerror: () => stopAllAudio(),
-        onclose: () => { setIsLiveMode(false); }
+        onerror: () => {
+          if (isAutoSwitch) handleNextNetwork();
+          else stopAllAudio();
+        },
+        onclose: () => {
+           // 正常关闭不立即触发换台，除非是报错或结束
+        }
       };
 
       const sessionPromise = connectLiveNews(callbacks, network);
       liveSessionRef.current = await sessionPromise;
-    } catch (error) { stopAllAudio(); }
-  }, [stopAllAudio]);
+    } catch (error) { 
+      if (isAutoSwitch) handleNextNetwork();
+      else stopAllAudio(); 
+    }
+  }, [isAutoSwitch, handleNextNetwork, stopAllAudio]);
 
   const loadNews = useCallback(async (category: NewsCategory) => {
     setIsLoading(true);
@@ -166,7 +213,18 @@ const App: React.FC = () => {
       <main className="flex-grow max-w-7xl mx-auto w-full px-4 md:px-8 py-6">
         <section className="mb-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4">
-            <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">电台信号矩阵</h3>
+            <div className="flex items-center gap-3">
+               <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">电台信号矩阵</h3>
+               <label className="flex items-center gap-2 cursor-pointer group">
+                  <div 
+                    onClick={() => setIsAutoSwitch(!isAutoSwitch)}
+                    className={`w-8 h-4 rounded-full relative transition-all ${isAutoSwitch ? 'bg-blue-600' : 'bg-slate-700'}`}
+                  >
+                    <div className={`absolute top-0.5 w-3 h-3 bg-white rounded-full transition-all ${isAutoSwitch ? 'left-4.5' : 'left-0.5'}`}></div>
+                  </div>
+                  <span className="text-[10px] font-bold text-slate-400 group-hover:text-blue-400 transition-colors">自动轮播换台</span>
+               </label>
+            </div>
             <div className="flex bg-slate-900 border border-slate-800 rounded-xl p-1">
               <button 
                 onClick={() => { setIsOfficialStream(false); if(activeNetwork) selectNetwork(activeNetwork); }}
@@ -175,7 +233,7 @@ const App: React.FC = () => {
               <button 
                 onClick={() => { setIsOfficialStream(true); if(activeNetwork) selectNetwork(activeNetwork); }}
                 className={`px-4 py-2 rounded-lg text-[10px] font-bold transition-all ${isOfficialStream ? 'bg-red-600 text-white shadow-lg shadow-red-500/20' : 'text-slate-500 hover:text-slate-300'}`}
-              >官方视频流 (需科学上网)</button>
+              >官方视频流 (需VPN)</button>
             </div>
           </div>
           
@@ -186,7 +244,7 @@ const App: React.FC = () => {
                 onClick={() => selectNetwork(net)}
                 className={`relative py-4 rounded-2xl border-2 transition-all active:scale-95 flex flex-col items-center gap-1.5 ${
                   activeNetwork === net
-                    ? (isOfficialStream ? 'bg-red-950/20 border-red-500' : 'bg-blue-950/20 border-blue-500')
+                    ? (isOfficialStream ? 'bg-red-950/20 border-red-500 ring-2 ring-red-500/20' : 'bg-blue-950/20 border-blue-500 ring-2 ring-blue-500/20')
                     : 'bg-slate-900 border-slate-800 hover:border-slate-700'
                 }`}
               >
@@ -233,7 +291,7 @@ const App: React.FC = () => {
                         <h4 className="text-2xl font-black text-white tracking-[0.3em] uppercase mb-4">开启实时播报</h4>
                         <p className="text-slate-400 text-sm max-w-sm mx-auto leading-relaxed">
                             {isOfficialStream 
-                                ? "官方流可能受地区限制。若无法加载，请切换至【AI 智能播报】模式，支持免翻墙流畅收听。"
+                                ? "官方流可能受网络环境限制。若无法加载，请切换至【AI 智能播报】模式，支持国内网络直连。已开启自动轮播模式。"
                                 : "正在连接 Gemini 神经网络，点击上方按钮收听为您定制的英语新闻流。"}
                         </p>
                     </div>
@@ -247,7 +305,7 @@ const App: React.FC = () => {
                               {isTuning ? '正在校准信号...' : '信号已锁定'}
                            </span>
                         </div>
-                        {!isOfficialStream && <div className="text-[10px] font-mono text-emerald-500 bg-emerald-500/10 px-3 py-1 rounded-full uppercase border border-emerald-500/20">AI 神经网络传输中</div>}
+                        {!isOfficialStream && <div className="text-[10px] font-mono text-emerald-500 bg-emerald-500/10 px-3 py-1 rounded-full uppercase border border-emerald-500/20">AI 神经网络传输中 {isAutoSwitch && '• 自动换台已开启'}</div>}
                     </div>
 
                     <div className={`text-9xl sm:text-[12rem] font-black font-mono tracking-tighter transition-all duration-700 select-none ${isTuning ? 'blur-3xl opacity-0 scale-90' : 'blur-0 opacity-100 scale-100'}`}>
@@ -290,7 +348,7 @@ const App: React.FC = () => {
               </div>
               <h2 className="text-4xl font-black mb-6 serif tracking-tight">全球回响电台</h2>
               <p className="text-slate-400 text-lg leading-relaxed font-light">
-                针对中国用户优化。推荐使用 <span className="text-blue-500 font-bold underline">AI 智能播报</span> 模式，免翻墙收听最新全球英语新闻，语速适中，适合磨耳朵。
+                针对中国用户优化。推荐使用 <span className="text-blue-500 font-bold underline">AI 智能播报</span> 模式，免翻墙收听最新全球英语新闻，系统将自动循环切换频道。
               </p>
             </div>
           )}
@@ -323,7 +381,7 @@ const App: React.FC = () => {
               <div className="flex-1 overflow-hidden">
                 <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] truncate mb-0.5">{activeNetwork || 'AI 智能中枢'}</p>
                 <p className="text-sm font-bold text-white truncate uppercase tracking-tight">
-                    {isOfficialStream ? '正在同步官方视频流' : 'AI 神经网络广播：实时播报中'}
+                    {isOfficialStream ? '正在同步官方视频流' : `AI 广播：${activeNetwork} 直播中 ${isAutoSwitch ? '(自动换台中)' : ''}`}
                 </p>
               </div>
             </div>
@@ -331,7 +389,7 @@ const App: React.FC = () => {
                 <AudioVisualizer />
             </div>
             <button 
-                onClick={stopAllAudio} 
+                onClick={() => stopAllAudio(true)} 
                 className="w-12 h-12 bg-slate-800/80 hover:bg-red-600 text-white rounded-2xl flex items-center justify-center transition-all active:scale-90 border border-slate-700 shadow-lg"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg>
