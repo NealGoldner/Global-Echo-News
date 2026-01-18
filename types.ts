@@ -20,9 +20,9 @@ export enum NewsCategory {
 
 export enum NewsNetwork {
   BBC = 'BBC World',
-  CNN = 'CNN Live',
+  CNN = 'CNN News',
   ABC = 'ABC News',
-  NPR = 'NPR News',
+  NPR = 'NPR Radio',
   VOA = 'VOA Learning',
   BLOOMBERG = 'Bloomberg',
   AL_JAZEERA = 'Al Jazeera',
@@ -33,32 +33,10 @@ export enum NewsNetwork {
   GLOBAL_AI = 'AI 综合电台'
 }
 
-// 视频流 (YouTube)
-export const NetworkStreamMap: Record<string, string> = {
-  [NewsNetwork.BBC]: 'fSAt4m9S_A4', 
-  [NewsNetwork.CNN]: 'unWpYvAis60', 
-  [NewsNetwork.ABC]: 'gCNeDWCI0vo',
-  [NewsNetwork.BLOOMBERG]: 'dp8PhLsUcFE', 
-  [NewsNetwork.AL_JAZEERA]: 'Xm66K_1XG_8',
-  [NewsNetwork.SKY]: '9Auq9mYqrEE',
-  [NewsNetwork.DW]: 'gv_m0p_q7vE',
-  [NewsNetwork.CNA]: 'XWqH6L8H700'
-};
-
-// 纯音频流 (Direct Audio URLs - 更有可能绕过限制并直接播放声音)
+// 仅保留 BBC，其他由 AI 模拟。
 export const NetworkAudioMap: Record<string, string> = {
-  [NewsNetwork.NPR]: 'https://npr-ice.streamguys1.com/p_9101_high_mp3',
-  [NewsNetwork.VOA]: 'https://voa-28.akacast.akamaitechnologies.net/7/54/322040/v1/gibson.akacast.akamaitechnologies.net/voa-28',
-  [NewsNetwork.RFI]: 'http://icepe1.infomaniak.ch/rfien-96.mp3',
   [NewsNetwork.BBC]: 'https://stream.live.vc.bbcmedia.co.uk/bbc_world_service'
 };
-
-export interface PlayerState {
-  isPlaying: boolean;
-  isLoading: boolean;
-  currentNewsId: string | null;
-  volume: number;
-}
 
 export enum VoiceName {
   ZEPHYR = 'Zephyr (中性)',
