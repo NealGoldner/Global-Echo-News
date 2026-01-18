@@ -1,0 +1,7 @@
+{
+  "name": "全球回响新闻 (Global Echo News)",
+  "description": "由 Gemini 驱动的沉浸式英语新闻收听体验。获取全球事件、科技等实时更新，由自然的人工智能语音朗读。",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
